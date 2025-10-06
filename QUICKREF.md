@@ -18,6 +18,9 @@ pip install -r requirements.txt
 # Basic training (1000 samples/class)
 python train.py
 
+# Hybrid training with realistic data (RECOMMENDED)
+python train.py --use-combined --n-samples 500
+
 # Quick training (500 samples)
 python train.py --n-samples 500
 
@@ -55,6 +58,10 @@ from src.data_loader import PQDataLoader
 # Generate synthetic data
 loader = PQDataLoader()
 waveforms, labels = loader.generate_synthetic_dataset(n_samples=100)
+
+# Load combined (synthetic + realistic) dataset
+from src.real_data_loader import load_combined_dataset
+waveforms, labels = load_combined_dataset(n_synthetic=500, n_real=500)
 
 # Save/load dataset
 loader.save_dataset(waveforms, labels)

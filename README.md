@@ -18,6 +18,7 @@ This simulator provides a software-based solution to detect and classify power q
 ## ✨ Features
 
 ### Data Processing
+- ✅ **Hybrid dataset support**: Combine synthetic + realistic (IEEE-compliant) data
 - ✅ Synthetic waveform generation based on IEEE PQ standards
 - ✅ Support for real PQ dataset loading (CSV format)
 - ✅ Configurable sampling rates and durations
@@ -92,11 +93,16 @@ pip install -r requirements.txt
 Train all machine learning models on synthetic PQ dataset:
 
 ```bash
+# Train with synthetic data only
 python train.py --n-samples 1000 --train-all --visualize
+
+# Train with hybrid dataset (synthetic + realistic) - RECOMMENDED
+python train.py --use-combined --n-samples 500 --train-all --visualize
 ```
 
 **Options**:
 - `--n-samples`: Number of samples per class (default: 1000)
+- `--use-combined`: Use hybrid dataset (synthetic + realistic IEEE-compliant data)
 - `--test-size`: Test set proportion (default: 0.2)
 - `--train-all`: Train all available models
 - `--random-forest`: Train only Random Forest
@@ -167,12 +173,14 @@ power-quality/
 ├── src/
 │   ├── __init__.py
 │   ├── data_loader.py          # Dataset loading and synthetic generation
+│   ├── real_data_loader.py     # Realistic IEEE-compliant dataset loader
 │   ├── feature_extraction.py   # Signal processing and feature extraction
 │   ├── model_training.py       # ML model training and evaluation
 │   ├── neural_network.py       # Neural network models (CNN, LSTM)
 │   └── visualization.py        # Plotting and visualization utilities
 ├── data/
-│   └── pq_dataset.npz          # Generated/saved dataset
+│   ├── pq_dataset.npz          # Generated/saved dataset
+│   └── real_pq_dataset.csv     # Realistic IEEE-compliant dataset
 ├── models/
 │   ├── random_forest.pkl
 │   ├── svm.pkl
@@ -187,7 +195,8 @@ power-quality/
 ├── app.py                      # Streamlit web application
 ├── train.py                    # Training script
 ├── requirements.txt
-└── README.md
+├── README.md
+└── HYBRID_TRAINING.md          # Hybrid training documentation
 ```
 
 ## 🔬 Technical Details
