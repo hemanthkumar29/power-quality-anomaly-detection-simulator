@@ -41,7 +41,18 @@ def main(args):
     logger.info("\n[STEP 1] Loading dataset...")
     data_loader = PQDataLoader(data_dir="data")
     
-    if args.use_saved:
+    # Check if we should use combined dataset
+    if args.use_combined:
+        from src.real_data_loader import load_combined_dataset
+        logger.info("Loading COMBINED dataset (synthetic + realistic)...")
+        logger.info(f"Synthetic samples per class: {args.n_samples}")
+        logger.info(f"Realistic samples per class: {args.n_samples}")
+        waveforms, labels = load_combined_dataset(
+            n_synthetic=args.n_samples,
+            n_real=args.n_samples,
+            data_dir='data'
+        )
+    elif args.use_saved:
         try:
             waveforms, labels = data_loader.load_saved_dataset()
             logger.info("Loaded saved dataset")
@@ -221,6 +232,11 @@ if __name__ == "__main__":
         '--use-saved', 
         action='store_true',
         help='Use previously saved dataset'
+    )
+    parser.add_argument(
+        '--use-combined', 
+        action='store_true',
+        help='Use combined synthetic + realistic dataset for better results'
     )
     
     # Model training arguments
