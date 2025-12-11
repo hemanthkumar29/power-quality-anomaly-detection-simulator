@@ -42,9 +42,9 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 
-@st.cache_resource
+@st.cache_resource(show_spinner="Loading models...")
 def load_models():
-    """Load trained models (cached)"""
+    """Load trained models (cached for performance)"""
     try:
         trainer = PQModelTrainer(model_dir="models")
         trainer.load_models()
@@ -55,13 +55,24 @@ def load_models():
         return None
 
 
-@st.cache_resource
+@st.cache_resource(show_spinner="Initializing components...")
 def initialize_components():
-    """Initialize data loader, feature extractor, and visualizer"""
+    """Initialize data loader, feature extractor, and visualizer (cached for performance)"""
     data_loader = PQDataLoader(data_dir="data")
     feature_extractor = FeatureExtractor()
     visualizer = PQVisualizer()
     return data_loader, feature_extractor, visualizer
+
+
+@st.cache_data(ttl=3600, show_spinner="Loading dataset...")
+def load_sample_dataset():
+    """Load saved dataset with caching (1 hour TTL)"""
+    try:
+        data_loader = PQDataLoader(data_dir="data")
+        waveforms, labels = data_loader.load_saved_dataset()
+        return waveforms, labels
+    except FileNotFoundError:
+        return None, None
 
 
 def main():
@@ -175,15 +186,16 @@ def main():
         
         elif data_source == "Use Sample Dataset":
             if st.button("📥 Load Random Sample", type="primary"):
-                try:
-                    waveforms, labels = data_loader.load_saved_dataset()
+                # Use cached dataset loading
+                waveforms, labels = load_sample_dataset()
+                if waveforms is not None and labels is not None:
                     idx = np.random.randint(0, len(waveforms))
                     waveform = waveforms[idx]
                     true_label = labels[idx]
                     st.session_state.waveform = waveform
                     st.session_state.true_label = true_label
                     st.success(f"✅ Loaded sample waveform (True label: {true_label})")
-                except FileNotFoundError:
+                else:
                     st.error("No saved dataset found. Please run train.py first.")
         
         # Display waveform if available

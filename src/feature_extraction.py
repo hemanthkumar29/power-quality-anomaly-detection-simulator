@@ -192,30 +192,35 @@ class FeatureExtractor:
     def calculate_thd(self, waveform: np.ndarray) -> tuple:
         """
         Calculate Total Harmonic Distortion (THD) and harmonic magnitudes
+        Optimized to compute FFT once and reuse results
         
         Returns:
             Tuple of (THD value, list of harmonic magnitudes)
         """
-        # Perform FFT
+        # Perform FFT once
         n = len(waveform)
         fft_values = fft(waveform)
         fft_magnitude = np.abs(fft_values[:n//2])
         freqs = fftfreq(n, 1/self.sampling_rate)[:n//2]
         
-        # Find fundamental frequency component
-        fund_idx = np.argmax(fft_magnitude)
-        fundamental_mag = fft_magnitude[fund_idx]
+        # Pre-calculate frequency bin size for efficiency
+        freq_resolution = self.sampling_rate / n
         
-        # Calculate harmonic magnitudes
+        # Calculate harmonic magnitudes efficiently
         harmonics = []
         harmonic_sum_squared = 0
+        fundamental_mag = 0
         
         for harmonic_num in range(1, 15):  # Check up to 14th harmonic
-            # Find the harmonic frequency
+            # Calculate expected harmonic frequency and bin index directly
             harmonic_freq = self.fundamental_freq * harmonic_num
-            # Find closest frequency bin
-            harmonic_idx = np.argmin(np.abs(freqs - harmonic_freq))
-            harmonic_mag = fft_magnitude[harmonic_idx]
+            harmonic_idx = int(harmonic_freq / freq_resolution)
+            
+            # Ensure index is within bounds
+            if harmonic_idx < len(fft_magnitude):
+                harmonic_mag = fft_magnitude[harmonic_idx]
+            else:
+                harmonic_mag = 0
             
             if harmonic_num == 1:
                 # This is the fundamental
@@ -339,19 +344,22 @@ class FeatureExtractor:
     
     def apply_preprocessing(self, waveform: np.ndarray, 
                           normalize: bool = True,
-                          denoise: bool = False) -> np.ndarray:
+                          denoise: bool = False,
+                          inplace: bool = False) -> np.ndarray:
         """
-        Apply preprocessing to waveform
+        Apply preprocessing to waveform with memory optimization
         
         Args:
             waveform: Input waveform
             normalize: Whether to normalize the waveform
             denoise: Whether to apply denoising filter
+            inplace: If True, modify waveform in place (faster, but destructive)
             
         Returns:
             Preprocessed waveform
         """
-        processed = waveform.copy()
+        # Avoid unnecessary copy if inplace is requested
+        processed = waveform if inplace else waveform.copy()
         
         if denoise:
             # Apply low-pass filter to remove high-frequency noise
@@ -361,7 +369,13 @@ class FeatureExtractor:
             processed = signal.filtfilt(b, a, processed)
         
         if normalize:
-            # Normalize to zero mean and unit variance
-            processed = (processed - np.mean(processed)) / (np.std(processed) + 1e-8)
+            # Normalize to zero mean and unit variance (in-place operations)
+            mean = np.mean(processed)
+            std = np.std(processed)
+            if std > 1e-8:
+                processed -= mean
+                processed /= std
+            else:
+                processed[:] = 0
         
         return processed
