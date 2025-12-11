@@ -214,7 +214,8 @@ class FeatureExtractor:
         for harmonic_num in range(1, 15):  # Check up to 14th harmonic
             # Calculate expected harmonic frequency and bin index directly
             harmonic_freq = self.fundamental_freq * harmonic_num
-            harmonic_idx = int(harmonic_freq / freq_resolution)
+            # Use rounding for more accurate frequency bin selection
+            harmonic_idx = int(np.round(harmonic_freq / freq_resolution))
             
             # Ensure index is within bounds
             if harmonic_idx < len(fft_magnitude):
@@ -282,8 +283,9 @@ class FeatureExtractor:
         # Pre-compute squared values
         waveform_sq = waveform ** 2
         
-        # Use cumulative sum for efficient sliding window RMS
-        cumsum = np.cumsum(np.insert(waveform_sq, 0, 0))
+        # Use cumulative sum for efficient sliding window RMS (optimized memory allocation)
+        cumsum_array = np.zeros(len(waveform_sq) + 1)
+        cumsum_array[1:] = np.cumsum(waveform_sq)
         
         # Calculate window RMS values efficiently
         window_starts = range(0, len(waveform) - window_size + 1, step)
@@ -291,7 +293,7 @@ class FeatureExtractor:
         
         for start in window_starts:
             end = start + window_size
-            window_sum = cumsum[end] - cumsum[start]
+            window_sum = cumsum_array[end] - cumsum_array[start]
             window_rms_values.append(np.sqrt(window_sum / window_size))
         
         if window_rms_values:
@@ -322,8 +324,9 @@ class FeatureExtractor:
         # Pre-compute squared values
         waveform_sq = waveform ** 2
         
-        # Use cumulative sum for efficient sliding window RMS
-        cumsum = np.cumsum(np.insert(waveform_sq, 0, 0))
+        # Use cumulative sum for efficient sliding window RMS (optimized memory allocation)
+        cumsum_array = np.zeros(len(waveform_sq) + 1)
+        cumsum_array[1:] = np.cumsum(waveform_sq)
         
         # Calculate window RMS values efficiently
         window_starts = range(0, len(waveform) - window_size + 1, step)
@@ -331,7 +334,7 @@ class FeatureExtractor:
         
         for start in window_starts:
             end = start + window_size
-            window_sum = cumsum[end] - cumsum[start]
+            window_sum = cumsum_array[end] - cumsum_array[start]
             window_rms_values.append(np.sqrt(window_sum / window_size))
         
         if window_rms_values:
@@ -370,9 +373,11 @@ class FeatureExtractor:
         
         if normalize:
             # Normalize to zero mean and unit variance (in-place operations)
+            # Epsilon value to avoid division by zero
+            EPSILON = 1e-8
             mean = np.mean(processed)
             std = np.std(processed)
-            if std > 1e-8:
+            if std > EPSILON:
                 processed -= mean
                 processed /= std
             else:
