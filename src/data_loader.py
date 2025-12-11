@@ -61,7 +61,7 @@ class PQDataLoader:
         duration: float = 0.2
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
-        Generate synthetic PQ waveform dataset
+        Generate synthetic PQ waveform dataset using optimized vectorized operations
         
         Args:
             n_samples: Number of samples per class
@@ -77,33 +77,34 @@ class PQDataLoader:
         time = np.linspace(0, duration, n_points)
         frequency = 60  # 60 Hz power system
         
-        waveforms_list = []
-        labels_list = []
-        
-        # Generate each class
+        # Pre-allocate arrays for better memory efficiency
         classes = ['Normal', 'Sag', 'Swell', 'Harmonic', 'Outage']
+        total_samples = n_samples * len(classes)
+        waveforms = np.zeros((total_samples, n_points))
+        labels = np.empty(total_samples, dtype=object)
         
+        # Generate each class in batches
+        idx = 0
         for class_name in classes:
-            for _ in range(n_samples):
-                if class_name == 'Normal':
-                    waveform = self._generate_normal(time, frequency)
-                elif class_name == 'Sag':
-                    waveform = self._generate_sag(time, frequency)
-                elif class_name == 'Swell':
-                    waveform = self._generate_swell(time, frequency)
-                elif class_name == 'Harmonic':
-                    waveform = self._generate_harmonic(time, frequency)
-                elif class_name == 'Outage':
-                    waveform = self._generate_outage(time, frequency)
-                
-                waveforms_list.append(waveform)
-                labels_list.append(class_name)
-        
-        waveforms = np.array(waveforms_list)
-        labels = np.array(labels_list)
+            logger.info(f"Generating {class_name} waveforms...")
+            
+            if class_name == 'Normal':
+                batch = self._generate_normal_batch(time, frequency, n_samples)
+            elif class_name == 'Sag':
+                batch = self._generate_sag_batch(time, frequency, n_samples)
+            elif class_name == 'Swell':
+                batch = self._generate_swell_batch(time, frequency, n_samples)
+            elif class_name == 'Harmonic':
+                batch = self._generate_harmonic_batch(time, frequency, n_samples)
+            elif class_name == 'Outage':
+                batch = self._generate_outage_batch(time, frequency, n_samples)
+            
+            waveforms[idx:idx+n_samples] = batch
+            labels[idx:idx+n_samples] = class_name
+            idx += n_samples
         
         # Shuffle the dataset
-        indices = np.random.permutation(len(waveforms))
+        indices = np.random.permutation(total_samples)
         waveforms = waveforms[indices]
         labels = labels[indices]
         
@@ -117,6 +118,19 @@ class PQDataLoader:
         # Add small noise
         noise = np.random.normal(0, amplitude * 0.02, len(time))
         return waveform + noise
+    
+    def _generate_normal_batch(self, time: np.ndarray, frequency: float, n_samples: int) -> np.ndarray:
+        """Generate multiple normal waveforms at once using vectorized operations"""
+        amplitude = 230 * np.sqrt(2)
+        n_points = len(time)
+        
+        # Generate all waveforms at once
+        base_waveform = amplitude * np.sin(2 * np.pi * frequency * time)
+        waveforms = np.tile(base_waveform, (n_samples, 1))
+        
+        # Add noise to all waveforms
+        noise = np.random.normal(0, amplitude * 0.02, (n_samples, n_points))
+        return waveforms + noise
     
     def _generate_sag(self, time: np.ndarray, frequency: float) -> np.ndarray:
         """Generate voltage sag (dip) waveform"""
@@ -132,6 +146,25 @@ class PQDataLoader:
         noise = np.random.normal(0, amplitude * 0.02, len(time))
         return waveform + noise
     
+    def _generate_sag_batch(self, time: np.ndarray, frequency: float, n_samples: int) -> np.ndarray:
+        """Generate multiple sag waveforms at once using vectorized operations"""
+        amplitude = 230 * np.sqrt(2)
+        n_points = len(time)
+        
+        # Generate base waveforms
+        base_waveform = amplitude * np.sin(2 * np.pi * frequency * time)
+        waveforms = np.tile(base_waveform, (n_samples, 1))
+        
+        # Apply sag to middle portion with random depths
+        sag_start = int(0.3 * n_points)
+        sag_end = int(0.7 * n_points)
+        sag_depths = np.random.uniform(0.1, 0.5, (n_samples, 1))
+        waveforms[:, sag_start:sag_end] *= (1 - sag_depths)
+        
+        # Add noise
+        noise = np.random.normal(0, amplitude * 0.02, (n_samples, n_points))
+        return waveforms + noise
+    
     def _generate_swell(self, time: np.ndarray, frequency: float) -> np.ndarray:
         """Generate voltage swell waveform"""
         amplitude = 230 * np.sqrt(2)
@@ -145,6 +178,25 @@ class PQDataLoader:
         
         noise = np.random.normal(0, amplitude * 0.02, len(time))
         return waveform + noise
+    
+    def _generate_swell_batch(self, time: np.ndarray, frequency: float, n_samples: int) -> np.ndarray:
+        """Generate multiple swell waveforms at once using vectorized operations"""
+        amplitude = 230 * np.sqrt(2)
+        n_points = len(time)
+        
+        # Generate base waveforms
+        base_waveform = amplitude * np.sin(2 * np.pi * frequency * time)
+        waveforms = np.tile(base_waveform, (n_samples, 1))
+        
+        # Apply swell to middle portion with random magnitudes
+        swell_start = int(0.3 * n_points)
+        swell_end = int(0.7 * n_points)
+        swell_magnitudes = np.random.uniform(1.1, 1.4, (n_samples, 1))
+        waveforms[:, swell_start:swell_end] *= swell_magnitudes
+        
+        # Add noise
+        noise = np.random.normal(0, amplitude * 0.02, (n_samples, n_points))
+        return waveforms + noise
     
     def _generate_harmonic(self, time: np.ndarray, frequency: float) -> np.ndarray:
         """Generate waveform with harmonic distortion"""
@@ -162,6 +214,26 @@ class PQDataLoader:
         noise = np.random.normal(0, amplitude * 0.02, len(time))
         return waveform + noise
     
+    def _generate_harmonic_batch(self, time: np.ndarray, frequency: float, n_samples: int) -> np.ndarray:
+        """Generate multiple harmonic waveforms at once using vectorized operations"""
+        amplitude = 230 * np.sqrt(2)
+        n_points = len(time)
+        
+        # Pre-compute all harmonic components
+        omega_t = 2 * np.pi * frequency * time
+        fundamental = amplitude * np.sin(omega_t)
+        harmonic_3 = amplitude * 0.2 * np.sin(3 * omega_t)
+        harmonic_5 = amplitude * 0.15 * np.sin(5 * omega_t)
+        harmonic_7 = amplitude * 0.1 * np.sin(7 * omega_t)
+        
+        # Sum all components
+        base_waveform = fundamental + harmonic_3 + harmonic_5 + harmonic_7
+        waveforms = np.tile(base_waveform, (n_samples, 1))
+        
+        # Add noise
+        noise = np.random.normal(0, amplitude * 0.02, (n_samples, n_points))
+        return waveforms + noise
+    
     def _generate_outage(self, time: np.ndarray, frequency: float) -> np.ndarray:
         """Generate outage (interruption) waveform"""
         amplitude = 230 * np.sqrt(2)
@@ -177,6 +249,26 @@ class PQDataLoader:
         waveform[outage_start:outage_end] = 0  # Ensure outage region stays zero
         
         return waveform
+    
+    def _generate_outage_batch(self, time: np.ndarray, frequency: float, n_samples: int) -> np.ndarray:
+        """Generate multiple outage waveforms at once using vectorized operations"""
+        amplitude = 230 * np.sqrt(2)
+        n_points = len(time)
+        
+        # Generate base waveforms
+        base_waveform = amplitude * np.sin(2 * np.pi * frequency * time)
+        waveforms = np.tile(base_waveform, (n_samples, 1))
+        
+        # Add noise
+        noise = np.random.normal(0, amplitude * 0.02, (n_samples, n_points))
+        waveforms += noise
+        
+        # Apply outage to middle portion
+        outage_start = int(0.4 * n_points)
+        outage_end = int(0.8 * n_points)
+        waveforms[:, outage_start:outage_end] = 0
+        
+        return waveforms
     
     def save_dataset(self, waveforms: np.ndarray, labels: np.ndarray, filename: str = "pq_dataset.npz"):
         """Save dataset to file"""

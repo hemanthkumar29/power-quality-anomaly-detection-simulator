@@ -66,7 +66,7 @@ class FeatureExtractor:
     
     def extract_features_batch(self, waveforms: np.ndarray) -> np.ndarray:
         """
-        Extract features from multiple waveforms
+        Extract features from multiple waveforms using vectorized operations
         
         Args:
             waveforms: 2D array of shape (n_samples, n_points)
@@ -76,15 +76,71 @@ class FeatureExtractor:
         """
         logger.info(f"Extracting features from {len(waveforms)} waveforms...")
         
-        features_list = []
-        for i, waveform in enumerate(waveforms):
-            if i % 100 == 0:
-                logger.info(f"Processed {i}/{len(waveforms)} waveforms")
-            
-            features = self.extract_all_features(waveform)
-            features_list.append(list(features.values()))
+        # Pre-allocate features array
+        n_samples = len(waveforms)
         
-        features_array = np.array(features_list)
+        # Vectorized time-domain features
+        rms_voltages = np.sqrt(np.mean(waveforms ** 2, axis=1))
+        peak_voltages = np.max(np.abs(waveforms), axis=1)
+        mean_voltages = np.mean(np.abs(waveforms), axis=1)
+        std_voltages = np.std(waveforms, axis=1)
+        voltage_ranges = np.ptp(waveforms, axis=1)
+        
+        # Crest and form factors (vectorized)
+        crest_factors = np.where(rms_voltages > 0, peak_voltages / rms_voltages, 0)
+        form_factors = np.where(mean_voltages > 0, rms_voltages / mean_voltages, 0)
+        
+        # Energy (vectorized)
+        energies = np.sum(waveforms ** 2, axis=1)
+        
+        # Zero crossing rates (vectorized)
+        sign_changes = np.diff(np.sign(waveforms), axis=1)
+        zero_crossings = np.count_nonzero(sign_changes, axis=1)
+        zero_crossing_rates = zero_crossings / waveforms.shape[1]
+        
+        # For frequency-domain and complex features, we still need per-sample processing
+        # but we can optimize the critical path
+        thd_values = np.zeros(n_samples)
+        freq_deviations = np.zeros(n_samples)
+        harmonic_features = np.zeros((n_samples, 7))
+        dip_percentages = np.zeros(n_samples)
+        swell_percentages = np.zeros(n_samples)
+        
+        # Process frequency-domain features with progress tracking
+        for i, waveform in enumerate(waveforms):
+            if i % 500 == 0 and i > 0:
+                logger.info(f"Processed {i}/{n_samples} waveforms")
+            
+            # Calculate THD and harmonics
+            thd, harmonics = self.calculate_thd(waveform)
+            thd_values[i] = thd
+            harmonic_features[i] = harmonics[:7]
+            
+            # Calculate frequency deviation
+            freq_deviations[i] = self.calculate_frequency_deviation(waveform)
+            
+            # Calculate dip and swell percentages (optimized version)
+            dip_percentages[i] = self._calculate_dip_percentage_fast(waveform)
+            swell_percentages[i] = self._calculate_swell_percentage_fast(waveform)
+        
+        # Assemble all features in order
+        features_array = np.column_stack([
+            rms_voltages,
+            peak_voltages,
+            crest_factors,
+            form_factors,
+            mean_voltages,
+            std_voltages,
+            voltage_ranges,
+            thd_values,
+            freq_deviations,
+            harmonic_features,
+            dip_percentages,
+            swell_percentages,
+            zero_crossing_rates,
+            energies
+        ])
+        
         logger.info(f"Feature extraction complete. Shape: {features_array.shape}")
         return features_array
     
@@ -206,20 +262,37 @@ class FeatureExtractor:
         Calculate voltage dip (sag) percentage
         Maximum percentage drop from nominal voltage
         """
-        rms = self.calculate_rms(waveform)
+        return self._calculate_dip_percentage_fast(waveform)
+    
+    def _calculate_dip_percentage_fast(self, waveform: np.ndarray) -> float:
+        """
+        Optimized calculation of voltage dip percentage using vectorized operations
+        """
         nominal_rms = 230  # Nominal voltage (RMS)
         
-        # Calculate RMS in sliding windows
-        window_size = len(waveform) // 10
-        if window_size < 10:
-            window_size = len(waveform) // 2
+        # Calculate RMS in sliding windows using vectorized approach
+        window_size = max(len(waveform) // 10, 10)
+        step = window_size // 2
         
-        min_rms = rms
-        for i in range(0, len(waveform) - window_size, window_size // 2):
-            window = waveform[i:i+window_size]
-            window_rms = self.calculate_rms(window)
-            if window_rms < min_rms:
-                min_rms = window_rms
+        # Pre-compute squared values
+        waveform_sq = waveform ** 2
+        
+        # Use cumulative sum for efficient sliding window RMS
+        cumsum = np.cumsum(np.insert(waveform_sq, 0, 0))
+        
+        # Calculate window RMS values efficiently
+        window_starts = range(0, len(waveform) - window_size + 1, step)
+        window_rms_values = []
+        
+        for start in window_starts:
+            end = start + window_size
+            window_sum = cumsum[end] - cumsum[start]
+            window_rms_values.append(np.sqrt(window_sum / window_size))
+        
+        if window_rms_values:
+            min_rms = min(window_rms_values)
+        else:
+            min_rms = np.sqrt(np.mean(waveform_sq))
         
         dip_percentage = max(0, (nominal_rms - min_rms) / nominal_rms * 100)
         return dip_percentage
@@ -229,20 +302,37 @@ class FeatureExtractor:
         Calculate voltage swell percentage
         Maximum percentage increase from nominal voltage
         """
-        rms = self.calculate_rms(waveform)
+        return self._calculate_swell_percentage_fast(waveform)
+    
+    def _calculate_swell_percentage_fast(self, waveform: np.ndarray) -> float:
+        """
+        Optimized calculation of voltage swell percentage using vectorized operations
+        """
         nominal_rms = 230  # Nominal voltage (RMS)
         
-        # Calculate RMS in sliding windows
-        window_size = len(waveform) // 10
-        if window_size < 10:
-            window_size = len(waveform) // 2
+        # Calculate RMS in sliding windows using vectorized approach
+        window_size = max(len(waveform) // 10, 10)
+        step = window_size // 2
         
-        max_rms = rms
-        for i in range(0, len(waveform) - window_size, window_size // 2):
-            window = waveform[i:i+window_size]
-            window_rms = self.calculate_rms(window)
-            if window_rms > max_rms:
-                max_rms = window_rms
+        # Pre-compute squared values
+        waveform_sq = waveform ** 2
+        
+        # Use cumulative sum for efficient sliding window RMS
+        cumsum = np.cumsum(np.insert(waveform_sq, 0, 0))
+        
+        # Calculate window RMS values efficiently
+        window_starts = range(0, len(waveform) - window_size + 1, step)
+        window_rms_values = []
+        
+        for start in window_starts:
+            end = start + window_size
+            window_sum = cumsum[end] - cumsum[start]
+            window_rms_values.append(np.sqrt(window_sum / window_size))
+        
+        if window_rms_values:
+            max_rms = max(window_rms_values)
+        else:
+            max_rms = np.sqrt(np.mean(waveform_sq))
         
         swell_percentage = max(0, (max_rms - nominal_rms) / nominal_rms * 100)
         return swell_percentage
